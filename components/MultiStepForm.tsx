@@ -272,7 +272,20 @@ export default function MultiStepForm() {
         zipCode: parseInt(data.zipCode),
       }),
     });
-    const responseData = await res.json();
+    //const responseData = await res.json();
+
+    let responseData;
+    try {
+      responseData = await res.json();
+    } catch (err) {
+      console.error("Failed to parse JSON:", err);
+      throw new Error("Something went wrong. Please try again.");
+    }
+
+    if (!res.ok) {
+      console.error("API Error:", responseData);
+      throw new Error(responseData?.message || "Server Error");
+    }
     setResult(responseData);
     setLoading(false);
     setStep(4); // Go to result step

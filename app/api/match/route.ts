@@ -2,14 +2,13 @@ import dbConnect from "@/utils/db";
 import Facility from "@/models/Facility";
 import { NextResponse } from "next/server";
 
-// Named export for POST request handler
 export async function POST(req: Request) {
   await dbConnect();
 
   try {
     const { name, careType, zipCode } = await req.json();
 
-    // If careType is day care, return a specific message
+    // If careType is "day care", skip and return
     if (careType.toLowerCase() === "day care") {
       return NextResponse.json({
         match: null,
@@ -17,48 +16,46 @@ export async function POST(req: Request) {
       });
     }
 
-    // Find facilities based on care type and zip code range
+    // Get all AVAILABLE facilities that support the care type
     const facilities = await Facility.find({
+      capacity: "Available",
       typeOfCare: { $in: [careType] },
-      "zipRange.from": { $lte: zipCode },
-      "zipRange.to": { $gte: zipCode },
     });
 
-    // Debug: log the filtered facilities
-    console.log("Filtered Facilities: ", facilities);
-
-    // Filter available facilities
-    const available = facilities.filter((f) => f.capacity === "Available");
-
-    // Debug: log available facilities
-    console.log("Available Facilities: ", available);
-
-    const sorted = available.sort(
-      (a, b) =>
-        Math.abs(a.facilityZip - zipCode) - Math.abs(b.facilityZip - zipCode)
+    // Filter facilities whose zip range contains the user's zip
+    const inRange = facilities.filter(
+      (f) => f.zipRange?.from <= zipCode && f.zipRange?.to >= zipCode
     );
 
-    // Debug: log sorted available facilities
-    console.log("Sorted Facilities: ", sorted);
+    // If any facilities are in-range, return the nearest one
+    if (inRange.length > 0) {
+      const nearestInRange = inRange.sort(
+        (a, b) =>
+          Math.abs(a.facilityZip - zipCode) - Math.abs(b.facilityZip - zipCode)
+      )[0];
 
-    // Find the nearest facility within the 3000 zip code range
-    const match = sorted.find((f) => Math.abs(f.facilityZip - zipCode) <= 3000);
-
-    // Debug: log match result
-    console.log("Match: ", match);
-
-    // If no match found, return a message
-    if (!match) {
-      return NextResponse.json({
-        match: null,
-        reason: "No available facility nearby.",
-      });
+      return NextResponse.json({ match: nearestInRange });
     }
 
-    // Return the matched facility details
-    return NextResponse.json({ match });
+    // Otherwise, check for closest available one within 3000 zip codes
+    const nearby = facilities
+      .map((f) => ({
+        facility: f,
+        distance: Math.abs(f.facilityZip - zipCode),
+      }))
+      .filter((f) => f.distance <= 3000)
+      .sort((a, b) => a.distance - b.distance);
+
+    if (nearby.length > 0) {
+      return NextResponse.json({ match: nearby[0].facility });
+    }
+
+    // If no match found at all
+    return NextResponse.json({
+      match: null,
+      reason: "No available facility nearby.",
+    });
   } catch (error) {
-    // Handle errors and send a 500 status
     console.error("Error: ", error);
     return NextResponse.json(
       { error: "Internal server error" },
